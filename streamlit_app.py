@@ -40,32 +40,27 @@ if st.button("Načíst čerstvá data"):
                     st.warning(f"Na {url} nebyla nalezena tabulka.")
                     continue
 
-                rows = table.find_all("tr")[1:]  # přeskočit hlavičku
+                rows = table.find_all("tr")[1:]
 
                 for row in rows:
                     cols = row.find_all("td")
-                    if len(cols) != 6:  # standardní E-ZAK struktura
+                    if len(cols) != 6:
                         continue
 
-                    # Název a link
                     name_tag = cols[0].find("a")
                     if not name_tag:
                         continue
                     name = name_tag.text.strip()
                     link = urljoin(url, name_tag["href"])
 
-                    # Zadavatel
                     zadavatel = cols[1].text.strip()
 
-                    # Datum zahájení
                     start_str = cols[4].text.strip()
 
-                    # Lhůta
                     deadline_str = cols[5].text.strip()
                     if not deadline_str or deadline_str == "-":
                         continue
 
-                    # Parsování lhůty
                     try:
                         deadline_clean = deadline_str.replace("\xa0", " ").strip()
                         if ":" in deadline_clean:
@@ -82,7 +77,7 @@ if st.button("Načíst čerstvá data"):
                         "Název zakázky": name,
                         "Datum zahájení": start_str,
                         "Lhůta pro nabídky": deadline_str,
-                        "Odkaz": link  # pro hyperlink
+                        "Odkaz": link
                     })
 
             except Exception as e:
@@ -90,19 +85,18 @@ if st.button("Načíst čerstvá data"):
 
     if data:
         df = pd.DataFrame(data)
-        df = df.sort_values("Lhůta pro nabídky")  # nejblížší lhůty nahoře
+        df = df.sort_values("Lhůta pro nabídky")
 
-        # Konfigurace tabulky: název jako klikatelný link
         st.success(f"Načteno {len(df)} aktivních zakázek!")
         st.dataframe(
             df,
             column_config={
                 "Název zakázky": st.column_config.LinkColumn(
                     "Název zakázky",
-                    display_text=name,  # zobrazí název
+                    validate=None,
                     help="Klikni pro detail zakázky"
                 ),
-                "Odkaz": None  # schová sloupec Odkaz
+                "Odkaz": None
             },
             hide_index=True,
             use_container_width=True
