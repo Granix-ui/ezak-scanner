@@ -26,10 +26,16 @@ if st.button("Načíst čerstvá data"):
         st.stop()
 
     data = []
+    total_found = 0
+    total_processed = 0
+    total_active = 0
     now = datetime.now()
 
     with st.spinner("Načítám data..."):
         for url in urls:
+            url_found = 0
+            url_processed = 0
+            url_active = 0
             try:
                 response = requests.get(url, timeout=15)
                 response.raise_for_status()
@@ -37,79 +43,86 @@ if st.button("Načíst čerstvá data"):
 
                 table = soup.find("table")
                 if not table:
-                    st.warning(f"Na {url} nebyla nalezena tabulka.")
+                    st.warning(f"Na {url}: Nebyla nalezena tabulka zakázek.")
                     continue
 
                 rows = table.find_all("tr")[1:]  # přeskočit hlavičku
+                st.info(f"Na {url}: Načteno {len(rows)} řádků v tabulce.")
 
                 for row in rows:
                     cols = row.find_all("td")
-                    if len(cols) != 6:
-                        continue  # jen standardní řádky
-
-                    # Název a odkaz
-                    name_tag = cols[0].find("a")
-                    if not name_tag:
+                    if len(cols) < 6:
                         continue
+
+                    url_found += 1
+
+                    name_tag = cols[0].find("a")
+                    if not name_tag or "contract_display_" not in name_tag.get("href", ""):
+                        continue
+
                     name = name_tag.text.strip()
                     link = urljoin(url, name_tag["href"])
 
-                    # Zadavatel (často s extra tagy, ale text vezmeme)
                     zadavatel = cols[1].get_text(separator=" ", strip=True)
 
-                    # Datum zahájení
                     start_str = cols[4].text.strip()
 
-                    # Lhůta
-                    deadline_str = cols[5].text.strip()
-                    if not deadline_str or deadline_str == "-" or deadline_str == "":
+                    deadline_str = cols[5].get_text(separator=" ", strip=True)
+                    deadline_str = deadline_str.replace("\xa0", " ").strip()
+
+                    if not deadline_str or deadline_str in ["-", ""]:
                         continue
 
-                    # Parsování lhůty pro filtr (vyčistit neviditelné znaky)
-                    deadline_clean = deadline_str.replace("\xa0", " ").strip()
+                    url_processed += 1
+
                     try:
-                        if ":" in deadline_clean:
-                            deadline = datetime.strptime(deadline_clean, "%d.%m.%Y %H:%M")
+                        if ":" in deadline_str.split()[-1]:
+                            deadline = datetime.strptime(deadline_str, "%d.%m.%Y %H:%M")
                         else:
-                            deadline = datetime.strptime(deadline_clean, "%d.%m.%Y")
-                        if deadline <= now:
-                            continue  # jen budoucí
+                            deadline = datetime.strptime(deadline_str, "%d.%m.%Y")
+                        if deadline > now:
+                            url_active += 1
+                            data.append({
+                                "Zadavatel": zadavatel,
+                                "Název zakázky": name,
+                                "Datum zahájení": start_str,
+                                "Lhůta pro nabídky": deadline_str,
+                                "Odkaz": link
+                            })
                     except ValueError:
                         continue
 
-                    data.append({
-                        "Zadavatel": zadavatel,
-                        "Název zakázky": name,
-                        "Datum zahájení": start_str,
-                        "Lhůta pro nabídky": deadline_str,
-                        "Odkaz": link
-                    })
+                st.info(f"Na {url}: Celkem zakázek {url_found}, zpracováno {url_processed}, aktivních {url_active}.")
+
+                total_found += url_found
+                total_processed += url_processed
+                total_active += url_active
 
             except Exception as e:
                 st.warning(f"Chyba na {url}: {e}")
+
+        st.info(f"Celkem přes všechny URL: Zakázek {total_found}, zpracováno {total_processed}, aktivních {total_active}.")
 
     if data:
         df = pd.DataFrame(data)
         df = df.sort_values("Lhůta pro nabídky")  # nejblížší nahoře
 
-        # Klikatelný název (markdown hyperlink)
-        df["Název zakázky"] = df.apply(lambda row: f"[{row['Název zakázky']}]({row['Odkaz']})", axis=1)
-
-        st.success(f"Načteno {len(df)} aktivních zakázek!")
+        st.success(f"Zobrazeno {len(df)} aktivních zakázek!")
         st.dataframe(
-            df.drop(columns=["Odkaz"]),  # schovat holý odkaz
+            df,
             column_config={
-                "Název zakázky": st.column_config.TextColumn(
+                "Název zakázky": st.column_config.LinkColumn(
                     "Název zakázky",
-                    help="Klikni na název pro detail zakázky",
-                    unsafe_allow_html=True  # povolit hyperlink
-                )
+                    display_text=df["Název zakázky"],
+                    validate=None
+                ),
+                "Odkaz": None  # schovat sloupec s odkazem
             },
             hide_index=True,
             use_container_width=True
         )
 
-        csv = df.drop(columns=["Odkaz"]).to_csv(index=False).encode("utf-8")
+        csv = df.to_csv(index=False).encode("utf-8")
         st.download_button("Stáhnout jako CSV", csv, "aktivni_zakazky.csv", "text/csv")
     else:
-        st.info("Žádné aktivní zakázky nenalezeny z zadaných URL.")
+        st.info("Žádné aktivní zakázky nenalezeny (ale viz výše počty pro kontrolu).")
