@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 from datetime import datetime
 import pandas as pd
 from urllib.parse import urljoin
+import re
 
 st.title("E-ZAK Scanner – aktivní zakázky")
 
@@ -35,38 +36,47 @@ if st.button("Načíst čerstvá data"):
                 response.raise_for_status()
                 soup = BeautifulSoup(response.text, "lxml")
 
-                table = soup.find("table")
-                if not table:
-                    st.warning(f"Na {url} nebyla nalezena tabulka.")
-                    continue
+                # Fallback zadavatel z title stránky
+                page_title = soup.title.text.strip() if soup.title else ""
+                fallback_zadavatel = page_title.split(" - ")[0].strip() if " - " in page_title else url.split("//")[1].split("/")[0]
 
-                rows = table.find_all("tr")[1:]
+                # Najdi všechny odkazy na zakázky
+                contract_links = soup.find_all("a", href=re.compile(r"contract_display_"))
 
-                for row in rows:
-                    cols = row.find_all("td")
-                    if len(cols) != 6:
+                for a in contract_links:
+                    name = a.text.strip()
+                    if not name:
+                        continue
+                    link = urljoin(url, a["href"])
+
+                    # Najdi řádek (tr) s touto zakázkou
+                    tr = a.find_parent("tr")
+                    if not tr:
                         continue
 
-                    name_tag = cols[0].find("a")
-                    if not name_tag:
-                        continue
-                    name = name_tag.text.strip()
-                    link = urljoin(url, name_tag["href"])
-
-                    zadavatel = cols[1].text.strip()
-
-                    start_str = cols[4].text.strip()
-
-                    deadline_str = cols[5].text.strip()
-                    if not deadline_str or deadline_str == "-":
+                    tds = tr.find_all("td")
+                    if len(tds) < 4:  # minimálně potřebujeme sloupce s daty
                         continue
 
+                    # Lhůta: vždy poslední sloupec
+                    deadline_str = tds[-1].text.strip()
+                    deadline_str = re.sub(r"\s+", " ", deadline_str)  # vyčistit mezery
+
+                    if not deadline_str or deadline_str == "-" or " " not in deadline_str:
+                        continue
+
+                    # Datum zahájení: předposlední sloupec
+                    start_str = tds[-2].text.strip() if len(tds) >= 5 else "Neuvedeno"
+
+                    # Zadavatel: druhý sloupec, pokud existuje
+                    zadavatel = tds[1].text.strip() if len(tds) >= 2 else fallback_zadavatel
+
+                    # Parsování lhůty pro filtr
                     try:
-                        deadline_clean = deadline_str.replace("\xa0", " ").strip()
-                        if ":" in deadline_clean:
-                            deadline = datetime.strptime(deadline_clean, "%d.%m.%Y %H:%M")
+                        if ":" in deadline_str:
+                            deadline = datetime.strptime(deadline_str, "%d.%m.%Y %H:%M")
                         else:
-                            deadline = datetime.strptime(deadline_clean, "%d.%m.%Y")
+                            deadline = datetime.strptime(deadline_str, "%d.%m.%Y")
                         if deadline <= now:
                             continue
                     except ValueError:
@@ -85,18 +95,23 @@ if st.button("Načíst čerstvá data"):
 
     if data:
         df = pd.DataFrame(data)
-        df = df.sort_values("Lhůta pro nabídky")
+        df = df.sort_values("Lhůta pro nabídky")  # nejblížší lhůty nahoře
+
+        # Vytvoř klikatelný název
+        df["Název zakázky"] = df.apply(lambda row: f'<a href="{row["Odkaz"]}">{row["Název zakázky"]}</a>', axis=1)
+
+        # Odstraníme sloupec s holým odkazem
+        df = df.drop(columns=["Odkaz"])
 
         st.success(f"Načteno {len(df)} aktivních zakázek!")
         st.dataframe(
             df,
             column_config={
-                "Název zakázky": st.column_config.LinkColumn(
+                "Název zakázky": st.column_config.TextColumn(
                     "Název zakázky",
-                    validate=None,
-                    help="Klikni pro detail zakázky"
-                ),
-                "Odkaz": None
+                    help="Klikni pro otevření detailu zakázky",
+                    unsafe_allow_html=True
+                )
             },
             hide_index=True,
             use_container_width=True
