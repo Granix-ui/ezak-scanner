@@ -35,7 +35,6 @@ if st.button("Načíst čerstvá data"):
         for base_url in urls:
             pages_to_scrape = [base_url]
 
-            # Detekce a přidání paginace pro contract_index
             if "contract_index.html" in base_url:
                 try:
                     response = requests.get(base_url, timeout=15)
@@ -71,10 +70,10 @@ if st.button("Načíst čerstvá data"):
                     response.raise_for_status()
                     soup = BeautifulSoup(response.text, "lxml")
 
-                    # Najdi všechny odkazy na zakázky
                     contract_links = soup.find_all("a", href=re.compile(r"contract_display_"))
 
-                    st.info(f"Na {page_url}: Nalezeno {len(contract_links)} zakázek (odkazů).")
+                    if contract_links:  # jen pokud něco našel
+                        st.info(f"Na {page_url}: Nalezeno {len(contract_links)} zakázek.")
 
                     for a in contract_links:
                         name = a.text.strip()
@@ -82,7 +81,6 @@ if st.button("Načíst čerstvá data"):
                             continue
                         link = urljoin(page_url, a["href"])
 
-                        # Najdi rodičovský tr a následující 2 tr pro zadavatele a detaily
                         current_tr = a.find_parent("tr")
                         if not current_tr:
                             continue
@@ -129,29 +127,36 @@ if st.button("Načíst čerstvá data"):
                 except Exception as e:
                     st.warning(f"Chyba na {page_url}: {e}")
 
-            st.info(f"Na {base_url} (celkem): Zpracováno {url_contracts} zakázek, aktivních {url_active}.")
+            if url_active > 0:
+                st.info(f"Na {base_url} (celkem): Zpracováno {url_contracts} zakázek, aktivních {url_active}.")
 
             total_contracts += url_contracts
             total_active += url_active
 
-        st.info(f"Celkem přes všechny: Zpracováno {total_contracts} zakázek, aktivních {total_active}.")
+        if total_active > 0:
+            st.info(f"Celkem přes všechny: Aktivních {total_active} zakázek.")
 
     if data:
         df = pd.DataFrame(data)
         df = df.sort_values("Lhůta pro nabídky")
 
+        df["Název zakázky"] = df.apply(lambda row: f"[{row['Název zakázky']}]({row['Odkaz']})", axis=1)
+
         st.success(f"Zobrazeno {len(df)} aktivních zakázek!")
         st.dataframe(
-            df,
+            df.drop(columns=["Odkaz"]),
             column_config={
-                "Název zakázky": st.column_config.LinkColumn("Název zakázky"),
-                "Odkaz": None
+                "Název zakázky": st.column_config.TextColumn(
+                    "Název zakázky",
+                    help="Klikni na název pro detail",
+                    unsafe_allow_html=True
+                )
             },
             hide_index=True,
             use_container_width=True
         )
 
-        csv = df.to_csv(index=False).encode("utf-8")
+        csv = df.drop(columns=["Odkaz"]).to_csv(index=False).encode("utf-8")
         st.download_button("Stáhnout jako CSV", csv, "aktivni_zakazky.csv", "text/csv")
     else:
         st.info("Žádné aktivní zakázky nenalezeny.")
