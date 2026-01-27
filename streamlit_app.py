@@ -2,7 +2,6 @@ import streamlit as st
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
-import pandas as pd
 from urllib.parse import urljoin, urlparse, parse_qs
 import re
 
@@ -26,8 +25,6 @@ if st.button("Načíst čerstvá data"):
         st.error("Zadej alespoň jednu URL!")
         st.stop()
 
-    data = []
-    total_active = 0
     now = datetime.now()
 
     with st.spinner("Načítám data..."):
@@ -59,7 +56,16 @@ if st.button("Načíst čerstvá data"):
                 except:
                     pass
 
-            url_active = 0
+            # Název instance z title base_url
+            try:
+                base_response = requests.get(base_url, timeout=15)
+                base_soup = BeautifulSoup(base_response.text, "lxml")
+                page_title = base_soup.title.text.strip() if base_soup.title else ""
+                instance_name = page_title.split("-")[-1].strip() if "-" in page_title else base_url.split("//")[1].split("/")[0]
+            except:
+                instance_name = base_url.split("//")[1].split("/")[0]
+
+            active_links = []
 
             for page_url in pages_to_scrape:
                 try:
@@ -83,16 +89,11 @@ if st.button("Načíst čerstvá data"):
                         if len(next_trs) < 2:
                             continue
 
-                        zadavatel_tr = next_trs[0]
                         details_tr = next_trs[1]
-
-                        zadavatel = zadavatel_tr.get_text(separator=" ", strip=True).strip("_ ").strip()
-
                         details_tds = details_tr.find_all("td")
                         if len(details_tds) < 4:
                             continue
 
-                        start_str = details_tds[-2].text.strip()
                         deadline_str = details_tds[-1].text.strip().replace("\xa0", " ")
 
                         if not deadline_str or deadline_str in ["-", ""]:
@@ -105,50 +106,17 @@ if st.button("Načíst čerstvá data"):
                             else:
                                 deadline = datetime.strptime(deadline_clean, "%d.%m.%Y")
                             if deadline > now:
-                                url_active += 1
-                                data.append({
-                                    "Zadavatel": zadavatel,
-                                    "Název zakázky": name,
-                                    "Datum zahájení": start_str,
-                                    "Lhůta pro nabídky": deadline_str,
-                                    "Odkaz": link
-                                })
+                                active_links.append(f"[{name}]({link})")
                         except ValueError:
                             continue
 
-                except Exception as e:
-                    st.warning(f"Chyba na {page_url}: {e}")
+                except:
+                    pass
 
-            if url_active > 0:
-                st.info(f"Na {base_url}: Aktivních {url_active} zakázek.")
+            st.markdown(f"### {instance_name}")
 
-            total_active += url_active
-
-        if total_active > 0:
-            st.info(f"Celkem aktivních: {total_active} zakázek.")
-
-    if data:
-        df = pd.DataFrame(data)
-        df = df.sort_values("Lhůta pro nabídky")
-
-        # Klikatelný název markdownem
-        df["Název zakázky"] = df.apply(lambda row: f'<a href="{row["Odkaz"]}">{row["Název zakázky"]}</a>', axis=1)
-
-        st.success(f"Zobrazeno {len(df)} aktivních zakázek!")
-        st.dataframe(
-            df.drop(columns=["Odkaz"]),
-            column_config={
-                "Název zakázky": st.column_config.TextColumn(
-                    "Název zakázky",
-                    help="Klikni na název pro detail",
-                    unsafe_allow_html=True
-                )
-            },
-            hide_index=True,
-            use_container_width=True
-        )
-
-        csv = df.drop(columns=["Odkaz"]).to_csv(index=False).encode("utf-8")
-        st.download_button("Stáhnout jako CSV", csv, "aktivni_zakazky.csv", "text/csv")
-    else:
-        st.info("Žádné aktivní zakázky nenalezeny.")
+            if active_links:
+                for link in active_links:
+                    st.markdown(f"- {link}", unsafe_allow_html=True)
+            else:
+                st.markdown("Nic nenalezeno")
