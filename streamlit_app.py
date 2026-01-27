@@ -11,7 +11,7 @@ st.title("E-ZAK Scanner – aktivní zakázky")
 urls_text = st.text_area(
     "Zadej URL E-ZAK seznamů (jedna na řádek)",
     height=200,
-    value="https:// Botswana.sokolov.cz/contract_index.html\n"
+    value="https://ezak.sokolov.cz/contract_index.html\n"
           "https://qcm.ezak.cz/profile_display_206.html\n"
           "https://qcm.ezak.cz/profile_display_27.html?state=all&archive=ACTUAL&otype=all&contract_place=\n"
           "https://qcm.ezak.cz/profile_display_98.html\n"
@@ -30,7 +30,7 @@ if st.button("Načíst čerstvá data"):
     total_active = 0
     now = datetime.now()
 
-    with st.spinner("Načítám data (včetně paginace)..."):
+    with st.spinner("Načítám data..."):
         for base_url in urls:
             pages_to_scrape = [base_url]
 
@@ -51,7 +51,6 @@ if st.button("Načíst čerstvá data"):
                                 except:
                                     pass
                         if max_page > 1:
-                            st.info(f"Na {base_url}: Paginace na {max_page} stránek – načtu všechny.")
                             for p in range(2, max_page + 1):
                                 page_url = re.sub(r"page=\d+", f"page={p}", base_url)
                                 if "page=" not in page_url:
@@ -69,9 +68,6 @@ if st.button("Načíst čerstvá data"):
                     soup = BeautifulSoup(response.text, "lxml")
 
                     contract_links = soup.find_all("a", href=re.compile(r"contract_display_"))
-
-                    if contract_links and url_active == 0:  # jen jednou na instanci
-                        st.info(f"Na {base_url}: Nalezeno zakázek na stránkách (paginace zpracována).")
 
                     for a in contract_links:
                         name = a.text.strip()
@@ -124,33 +120,35 @@ if st.button("Načíst čerstvá data"):
                     st.warning(f"Chyba na {page_url}: {e}")
 
             if url_active > 0:
-                st.info(f"Na {base_url}: Aktivních zakázek {url_active}.")
+                st.info(f"Na {base_url}: Aktivních {url_active} zakázek.")
 
             total_active += url_active
 
         if total_active > 0:
-            st.info(f"Celkem aktivních zakázek: {total_active}.")
+            st.info(f"Celkem aktivních: {total_active} zakázek.")
 
     if data:
         df = pd.DataFrame(data)
         df = df.sort_values("Lhůta pro nabídky")
 
+        # Klikatelný název markdownem
+        df["Název zakázky"] = df.apply(lambda row: f'<a href="{row["Odkaz"]}">{row["Název zakázky"]}</a>', axis=1)
+
         st.success(f"Zobrazeno {len(df)} aktivních zakázek!")
         st.dataframe(
-            df,
+            df.drop(columns=["Odkaz"]),
             column_config={
-                "Název zakázky": st.column_config.LinkColumn(
+                "Název zakázky": st.column_config.TextColumn(
                     "Název zakázky",
-                    display_text="Název zakázky",
-                    link="Odkaz"
-                ),
-                "Odkaz": None
+                    help="Klikni na název pro detail",
+                    unsafe_allow_html=True
+                )
             },
             hide_index=True,
             use_container_width=True
         )
 
-        csv = df.to_csv(index=False).encode("utf-8")
+        csv = df.drop(columns=["Odkaz"]).to_csv(index=False).encode("utf-8")
         st.download_button("Stáhnout jako CSV", csv, "aktivni_zakazky.csv", "text/csv")
     else:
         st.info("Žádné aktivní zakázky nenalezeny.")
