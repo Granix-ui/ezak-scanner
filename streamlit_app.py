@@ -5,7 +5,7 @@ from datetime import datetime
 from urllib.parse import urljoin, urlparse, parse_qs
 import re
 
-st.title("E-ZAK Scanner – aktivní zakázky (okolí Vřesové)")
+st.title("E-ZAK Scanner – aktivní zakázky (do 50 km od Vřesové)")
 
 # Seznam seřazený podle vzdálenosti od Vřesové (356 01)
 urls_text = st.text_area(
@@ -20,33 +20,20 @@ urls_text = st.text_area(
           "https://qcm.ezak.cz/contract_index.html?type=all&state=active&archive=ACTUAL&contract_place=CZ041\n"
           "https://qcm.ezak.cz/profile_display_186.html\n"
           "https://qcm.ezak.cz/profile_display_12.html\n"
-          "https://zakazky.cheb.cz/contract_index.html\n"
           "https://zakazky.ostrov.cz/contract_index.html\n"
           "https://qcm.ezak.cz/profile_display_13.html\n"
           "https://zakazky.nejdek.cz/contract_index.html?type=all&state=all\n"
-          "https://zakazky.chomutov.cz/contract_index.html\n"
           "https://zakazky.muml.cz/contract_index.html\n"
           "https://qcm.ezak.cz/profile_display_18.html\n"
           "https://ezak.tendera.cz/contract_index.html?type=all&state=all&archive=ACTUAL&contract_place=CZ041\n"
-          "https://zakazky.spravazeleznic.cz/contract_index.html?type=all&state=all&archive=ACTUAL&contract_place=CZ041\n"
           "https://zakazky.hornislavkov.cz/contract_index.html\n"
-          "https://zakazky.kzcr.eu/contract_index.html?type=all&state=all&archive=ACTUAL&contract_place=CZ041\n"
-          "https://mfcr.ezak.cz/contract_index.html?type=all&state=all&archive=ACTUAL&contract_place=CZ041\n"
-          "https://zakazky.spucr.cz/contract_index.html?type=all&state=all&archive=ACTUAL&contract_place=CZ041\n"
-          "https://ezak.mzp.cz/contract_index.html?type=all&state=all&archive=ACTUAL&contract_place=CZ041\n"
-          "https://zakazky.eagri.cz/contract_index.html?type=all&state=all&archive=ACTUAL&contract_place=CZ041\n"
-          "https://mpsv.ezak.cz/contract_index.html?type=all&state=all&archive=ACTUAL&contract_place=CZ041\n"
-          "https://zakazky.rpa.cz/contract_index.html?type=all&state=active&archive=ACTUAL&contract_place=CZ041\n"
           "https://zakazky.zcu.cz/contract_index.html?type=all&state=all&archive=ACTUAL&contract_place=CZ041\n"
           "https://zakazky.tachov-mesto.cz/contract_index.html\n"
-          "https://ezak.vscr.cz/contract_index.html?type=all&state=all&archive=ACTUAL&contract_place=CZ041\n"
           "https://smart.ezak.cz/contract_index.html?type=all&state=all&archive=ACTUAL&contract_place=CZ041\n"
           "https://ezak.marianskelazne.cz/contract_index.html\n"
           "https://ezak.as.cz/contract_index.html\n"
-          "# Vzdálenější\n"
-          "https://zakazky.cheb.cz/contract_index.html\n"
-          "https://ezak.hroznetin.cz/contract_index.html\n"
-          "https://ezak.tepla.cz/contract_index.html"
+          "# Vzdálenější (konec seznamu)\n"
+          "https://zakazky.cheb.cz/contract_index.html"
 )
 
 if st.button("Načíst čerstvá data"):
