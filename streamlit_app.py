@@ -5,11 +5,12 @@ from datetime import datetime
 from urllib.parse import urljoin, urlparse, parse_qs
 import re
 
-st.title("E-ZAK Scanner – aktivní zakázky")
+st.title("E-ZAK Scanner – aktivní zakázky (okolí Vřesové)")
 
+# Seznam seřazený podle vzdálenosti od Vřesové (356 01)
 urls_text = st.text_area(
-    "Zadej URL E-ZAK seznamů (jedna na řádek)",
-    height=200,
+    "Zadej URL E-ZAK seznamů (jedna na řádek) - seřazeno od nejbližších",
+    height=500,
     value="https://ezak.sokolov.cz/contract_index.html\n"
           "https://qcm.ezak.cz/profile_display_206.html\n"
           "https://qcm.ezak.cz/profile_display_27.html?state=all&archive=ACTUAL&otype=all&contract_place=\n"
@@ -41,18 +42,22 @@ urls_text = st.text_area(
           "https://ezak.vscr.cz/contract_index.html?type=all&state=all&archive=ACTUAL&contract_place=CZ041\n"
           "https://smart.ezak.cz/contract_index.html?type=all&state=all&archive=ACTUAL&contract_place=CZ041\n"
           "https://ezak.marianskelazne.cz/contract_index.html\n"
-          "https://ezak.as.cz/contract_index.html"
+          "https://ezak.as.cz/contract_index.html\n"
+          "# Vzdálenější\n"
+          "https://zakazky.cheb.cz/contract_index.html\n"
+          "https://ezak.hroznetin.cz/contract_index.html\n"
+          "https://ezak.tepla.cz/contract_index.html"
 )
 
 if st.button("Načíst čerstvá data"):
-    urls = [u.strip() for u in urls_text.split("\n") if u.strip()]
+    urls = [u.strip() for u in urls_text.split("\n") if u.strip() and not u.strip().startswith("#")]
     if not urls:
         st.error("Zadej alespoň jednu URL!")
         st.stop()
 
     now = datetime.now()
 
-    with st.spinner("Načítám data..."):
+    with st.spinner("Načítám data (včetně paginace)..."):
         for base_url in urls:
             pages_to_scrape = [base_url]
 
@@ -81,7 +86,7 @@ if st.button("Načíst čerstvá data"):
                 except:
                     pass
 
-            # Název instance z title base_url
+            # Název zadavatele
             try:
                 base_response = requests.get(base_url, timeout=15)
                 base_soup = BeautifulSoup(base_response.text, "lxml")
@@ -131,7 +136,7 @@ if st.button("Načíst čerstvá data"):
                             else:
                                 deadline = datetime.strptime(deadline_clean, "%d.%m.%Y")
                             if deadline > now:
-                                active_links.append(f"[{name}]({link})")
+                                active_links.append(f"[{name}]({link}) — lhůta {deadline_str}")
                         except ValueError:
                             continue
 
