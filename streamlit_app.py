@@ -12,7 +12,7 @@ st.markdown("**Aktivní zakázky do 50 km od Vřesové (356 01)**")
 
 urls_text = st.text_area(
     "Seznam E-ZAK URL (seřazeno od nejbližších)",
-    height=420,
+    height=380,
     value="https://ezak.sokolov.cz/contract_index.html\n"
           "https://ezak.kr-karlovarsky.cz/contract_index.html\n"
           "https://ezak.mmkv.cz/contract_index.html?type=all&state=all&archive=ACTUAL&contract_place=CZ041\n"
@@ -49,7 +49,7 @@ if st.button("🔄 Načíst aktivní zakázky", type="primary"):
                 pages = [base_url]
 
                 if "contract_index.html" in base_url:
-                    for p in range(2, 8):  # více stránek
+                    for p in range(2, 8):
                         page_url = base_url + ("&" if "?" in base_url else "?") + f"page={p}"
                         pages.append(page_url)
 
@@ -58,32 +58,30 @@ if st.button("🔄 Načíst aktivní zakázky", type="primary"):
                         resp = requests.get(page_url, timeout=15)
                         soup = BeautifulSoup(resp.text, "lxml")
 
-                        # Velmi robustní hledání
-                        for a in soup.find_all("a", href=True):
-                            if "contract_display_" not in a["href"]:
-                                continue
+                        # Nejrobustnější způsob - hledáme všechny contract_display
+                        for a in soup.find_all("a", href=re.compile(r"contract_display_")):
                             name = a.text.strip()
-                            if len(name) < 8: 
+                            if len(name) < 10: 
                                 continue
-
                             link = urljoin(page_url, a["href"])
 
-                            # Najdeme lhůtu v řádku
+                            # Najdeme řádek s daty (lhůta je obvykle v posledním sloupci)
                             tr = a.find_parent("tr")
                             if tr:
-                                text = tr.get_text(separator="|")
-                                deadline_match = re.search(r'(\d{1,2}\.\d{1,2}\.\d{4}(?:\s+\d{1,2}:\d{2})?)', text)
-                                if deadline_match:
-                                    deadline_str = deadline_match.group(1)
-                                    try:
-                                        if ":" in deadline_str:
-                                            dl = datetime.strptime(deadline_str, "%d.%m.%Y %H:%M")
-                                        else:
-                                            dl = datetime.strptime(deadline_str, "%d.%m.%Y")
-                                        if dl > now:
-                                            active.append(f"[{name}]({link}) — lhůta {deadline_str}")
-                                    except:
-                                        continue
+                                tds = tr.find_all("td")
+                                if len(tds) >= 4:
+                                    deadline_str = tds[-1].text.strip().replace("\xa0", " ")
+
+                                    if deadline_str and deadline_str != "-":
+                                        try:
+                                            if ":" in deadline_str:
+                                                dl = datetime.strptime(deadline_str, "%d.%m.%Y %H:%M")
+                                            else:
+                                                dl = datetime.strptime(deadline_str, "%d.%m.%Y")
+                                            if dl > now:
+                                                active.append(f"[{name}]({link}) — lhůta {deadline_str}")
+                                        except:
+                                            continue
                     except:
                         continue
 
@@ -93,14 +91,14 @@ if st.button("🔄 Načíst aktivní zakázky", type="primary"):
                         st.markdown(f"- {item}", unsafe_allow_html=True)
                     total_active += len(active)
 
-            except Exception as e:
-                st.warning(f"{instance_name} — chyba")
+            except Exception:
+                st.warning(f"{instance_name} — chyba načtení")
 
         progress_bar.progress(1.0)
 
     if total_active == 0:
-        st.info("Momentálně nejsou žádné aktivní zakázky.")
+        st.info("Momentálně nejsou žádné aktivní zakázky v monitorovaných zadavatelích.")
     else:
         st.success(f"Celkem nalezeno {total_active} aktivních zakázek")
 
-st.caption("E-ZAK Scanner • Okolí Vřesové")
+st.caption("E-ZAK Scanner • Okolí Vřesové (do 50 km)")
