@@ -4,13 +4,16 @@ from bs4 import BeautifulSoup
 from datetime import datetime
 from urllib.parse import urljoin, urlparse, parse_qs
 import re
+import pandas as pd
 
-st.title("E-ZAK Scanner – aktivní zakázky (do 50 km od Vřesové)")
+st.set_page_config(page_title="E-ZAK Scanner", layout="wide")
+st.title("🛡️ E-ZAK Scanner")
+st.markdown("**Aktivní zakázky do 50 km od Vřesové (356 01)**")
 
-# Seznam seřazený podle vzdálenosti od Vřesové (356 01)
+# Seznam seřazený podle vzdálenosti
 urls_text = st.text_area(
-    "Zadej URL E-ZAK seznamů (jedna na řádek) - seřazeno od nejbližších",
-    height=500,
+    "Seznam E-ZAK URL (seřazeno od nejbližších)",
+    height=420,
     value="https://ezak.sokolov.cz/contract_index.html\n"
           "https://qcm.ezak.cz/profile_display_206.html\n"
           "https://qcm.ezak.cz/profile_display_27.html?state=all&archive=ACTUAL&otype=all&contract_place=\n"
@@ -18,122 +21,100 @@ urls_text = st.text_area(
           "https://ezak.kr-karlovarsky.cz/contract_index.html\n"
           "https://ezak.mmkv.cz/contract_index.html?type=all&state=all&archive=ACTUAL&contract_place=CZ041\n"
           "https://qcm.ezak.cz/contract_index.html?type=all&state=active&archive=ACTUAL&contract_place=CZ041\n"
-          "https://qcm.ezak.cz/profile_display_186.html\n"
-          "https://qcm.ezak.cz/profile_display_12.html\n"
           "https://zakazky.ostrov.cz/contract_index.html\n"
-          "https://qcm.ezak.cz/profile_display_13.html\n"
           "https://zakazky.nejdek.cz/contract_index.html?type=all&state=all\n"
-          "https://zakazky.muml.cz/contract_index.html\n"
-          "https://qcm.ezak.cz/profile_display_18.html\n"
-          "https://ezak.tendera.cz/contract_index.html?type=all&state=all&archive=ACTUAL&contract_place=CZ041\n"
-          "https://zakazky.hornislavkov.cz/contract_index.html\n"
-          "https://zakazky.zcu.cz/contract_index.html?type=all&state=all&archive=ACTUAL&contract_place=CZ041\n"
-          "https://zakazky.tachov-mesto.cz/contract_index.html\n"
-          "https://smart.ezak.cz/contract_index.html?type=all&state=all&archive=ACTUAL&contract_place=CZ041\n"
           "https://ezak.marianskelazne.cz/contract_index.html\n"
           "https://ezak.as.cz/contract_index.html\n"
-          "# Vzdálenější (konec seznamu)\n"
-          "https://zakazky.cheb.cz/contract_index.html"
+          "https://zakazky.tachov-mesto.cz/contract_index.html"
 )
 
-if st.button("Načíst čerstvá data"):
-    urls = [u.strip() for u in urls_text.split("\n") if u.strip() and not u.strip().startswith("#")]
-    if not urls:
-        st.error("Zadej alespoň jednu URL!")
-        st.stop()
+# Zobrazení tabulky zadavatelů
+st.subheader("📋 Seznam prohledávaných zadavatelů")
+zadavatele_list = []
+for url in urls_text.split("\n"):
+    if url.strip():
+        nazev = url.split("//")[1].split("/")[0].replace("www.", "").replace(".cz", "").upper()
+        zadavatele_list.append({"Zadavatel": nazev, "URL": url.strip()})
 
+df = pd.DataFrame(zadavatele_list)
+st.dataframe(df, use_container_width=True, hide_index=True)
+
+st.caption(f"Celkem {len(df)} zadavatelů v monitoringu")
+
+if st.button("🔄 Načíst aktivní zakázky", type="primary"):
+    urls = [u.strip() for u in urls_text.split("\n") if u.strip()]
     now = datetime.now()
+    total_active = 0
 
-    with st.spinner("Načítám data (včetně paginace)..."):
-        for base_url in urls:
-            pages_to_scrape = [base_url]
+    with st.spinner("Prohledávám všechny zadavatele..."):
+        progress_bar = st.progress(0)
 
-            if "contract_index.html" in base_url:
-                try:
-                    response = requests.get(base_url, timeout=15)
-                    soup = BeautifulSoup(response.text, "lxml")
-                    pagination = soup.find("div", class_=re.compile(r"pagination", re.I))
-                    if pagination:
-                        links = pagination.find_all("a", href=True)
-                        max_page = 1
-                        for link in links:
-                            href = link["href"]
-                            if "page=" in href:
-                                try:
-                                    page_num = int(parse_qs(urlparse(href).query)["page"][0])
-                                    max_page = max(max_page, page_num)
-                                except:
-                                    pass
-                        if max_page > 1:
-                            for p in range(2, max_page + 1):
-                                page_url = re.sub(r"page=\d+", f"page={p}", base_url)
-                                if "page=" not in page_url:
-                                    page_url = base_url + ("&" if "?" in base_url else "?") + f"page={p}"
-                                pages_to_scrape.append(page_url)
-                except:
-                    pass
-
-            # Název zadavatele
+        for idx, base_url in enumerate(urls):
+            progress_bar.progress((idx + 1) / len(urls))
+            
             try:
-                base_response = requests.get(base_url, timeout=15)
-                base_soup = BeautifulSoup(base_response.text, "lxml")
-                page_title = base_soup.title.text.strip() if base_soup.title else ""
-                instance_name = page_title.split("-")[-1].strip() if "-" in page_title else base_url.split("//")[1].split("/")[0]
-            except:
-                instance_name = base_url.split("//")[1].split("/")[0]
-
-            active_links = []
-
-            for page_url in pages_to_scrape:
+                # Název zadavatele
                 try:
-                    response = requests.get(page_url, timeout=15)
-                    response.raise_for_status()
-                    soup = BeautifulSoup(response.text, "lxml")
-
-                    contract_links = soup.find_all("a", href=re.compile(r"contract_display_"))
-
-                    for a in contract_links:
-                        name = a.text.strip()
-                        if not name:
-                            continue
-                        link = urljoin(page_url, a["href"])
-
-                        current_tr = a.find_parent("tr")
-                        if not current_tr:
-                            continue
-
-                        next_trs = current_tr.find_next_siblings("tr", limit=2)
-                        if len(next_trs) < 2:
-                            continue
-
-                        details_tr = next_trs[1]
-                        details_tds = details_tr.find_all("td")
-                        if len(details_tds) < 4:
-                            continue
-
-                        deadline_str = details_tds[-1].text.strip().replace("\xa0", " ")
-
-                        if not deadline_str or deadline_str in ["-", ""]:
-                            continue
-
-                        try:
-                            deadline_clean = re.sub(r"\s+", " ", deadline_str).strip()
-                            if ":" in deadline_clean:
-                                deadline = datetime.strptime(deadline_clean, "%d.%m.%Y %H:%M")
-                            else:
-                                deadline = datetime.strptime(deadline_clean, "%d.%m.%Y")
-                            if deadline > now:
-                                active_links.append(f"[{name}]({link}) — lhůta {deadline_str}")
-                        except ValueError:
-                            continue
-
+                    r = requests.get(base_url, timeout=10)
+                    soup_title = BeautifulSoup(r.text, "lxml")
+                    title = soup_title.title.text.strip() if soup_title.title else base_url
+                    instance_name = title.split("-")[-1].strip() if "-" in title else base_url.split("//")[1].split("/")[0]
                 except:
-                    pass
+                    instance_name = base_url.split("//")[1].split("/")[0]
 
-            st.markdown(f"### {instance_name}")
+                active = []
+                pages = [base_url]
 
-            if active_links:
-                for link in active_links:
-                    st.markdown(f"- {link}", unsafe_allow_html=True)
-            else:
-                st.markdown("Nic nenalezeno")
+                # Paginace
+                if "contract_index.html" in base_url:
+                    for p in range(2, 6):
+                        page_url = base_url + ("&" if "?" in base_url else "?") + f"page={p}"
+                        pages.append(page_url)
+
+                for page_url in pages:
+                    try:
+                        resp = requests.get(page_url, timeout=12)
+                        soup = BeautifulSoup(resp.text, "lxml")
+                        contract_links = soup.find_all("a", href=re.compile(r"contract_display_"))
+
+                        for a in contract_links:
+                            name = a.text.strip()
+                            if not name: continue
+                            link = urljoin(page_url, a["href"])
+
+                            tr = a.find_parent("tr")
+                            if not tr: continue
+                            tds = tr.find_all("td")
+                            if len(tds) < 5: continue
+
+                            deadline_str = tds[-1].text.strip().replace("\xa0", " ")
+
+                            try:
+                                if ":" in deadline_str:
+                                    dl = datetime.strptime(deadline_str, "%d.%m.%Y %H:%M")
+                                else:
+                                    dl = datetime.strptime(deadline_str, "%d.%m.%Y")
+                                if dl > now:
+                                    active.append(f"[{name}]({link}) — lhůta {deadline_str}")
+                            except:
+                                continue
+                    except:
+                        continue
+
+                if active:
+                    st.markdown(f"### {instance_name}")
+                    for item in active:
+                        st.markdown(f"- {item}", unsafe_allow_html=True)
+                    total_active += len(active)
+
+            except:
+                st.warning(f"{instance_name} — nepodařilo se načíst")
+
+        progress_bar.progress(1.0)
+
+    if total_active == 0:
+        st.info("Momentálně nejsou žádné aktivní zakázky v monitorovaných zadavatelích.")
+    else:
+        st.success(f"Celkem nalezeno {total_active} aktivních zakázek")
+
+st.caption("E-ZAK Scanner • Okolí Vřesové (do 50 km)")
