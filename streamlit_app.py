@@ -2,113 +2,138 @@ import streamlit as st
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse, parse_qs
 import re
-import pandas as pd
 
-st.set_page_config(page_title="E-ZAK Karlovarský kraj", layout="wide")
-st.title("🛡️ E-ZAK Karlovarský kraj")
-st.markdown("**Aktivní zakázky všech zadavatelů v Karlovarském kraji**")
+st.title("E-ZAK Scanner – aktivní zakázky (do 50 km od Vřesové)")
 
-base_index = "https://ezak.kr-karlovarsky.cz/profile_index.html"
+# Seznam seřazený podle vzdálenosti od Vřesové (356 01)
+urls_text = st.text_area(
+    "Zadej URL E-ZAK seznamů (jedna na řádek) - seřazeno od nejbližších",
+    height=500,
+    value="https://ezak.sokolov.cz/contract_index.html\n"
+          "https://qcm.ezak.cz/profile_display_206.html\n"
+          "https://qcm.ezak.cz/profile_display_27.html?state=all&archive=ACTUAL&otype=all&contract_place=\n"
+          "https://qcm.ezak.cz/profile_display_98.html\n"
+          "https://ezak.kr-karlovarsky.cz/contract_index.html\n"
+          "https://ezak.mmkv.cz/contract_index.html?type=all&state=all&archive=ACTUAL&contract_place=CZ041\n"
+          "https://qcm.ezak.cz/contract_index.html?type=all&state=active&archive=ACTUAL&contract_place=CZ041\n"
+          "https://qcm.ezak.cz/profile_display_186.html\n"
+          "https://qcm.ezak.cz/profile_display_12.html\n"
+          "https://zakazky.ostrov.cz/contract_index.html\n"
+          "https://qcm.ezak.cz/profile_display_13.html\n"
+          "https://zakazky.nejdek.cz/contract_index.html?type=all&state=all\n"
+          "https://zakazky.muml.cz/contract_index.html\n"
+          "https://qcm.ezak.cz/profile_display_18.html\n"
+          "https://ezak.tendera.cz/contract_index.html?type=all&state=all&archive=ACTUAL&contract_place=CZ041\n"
+          "https://zakazky.hornislavkov.cz/contract_index.html\n"
+          "https://zakazky.zcu.cz/contract_index.html?type=all&state=all&archive=ACTUAL&contract_place=CZ041\n"
+          "https://zakazky.tachov-mesto.cz/contract_index.html\n"
+          "https://smart.ezak.cz/contract_index.html?type=all&state=all&archive=ACTUAL&contract_place=CZ041\n"
+          "https://ezak.marianskelazne.cz/contract_index.html\n"
+          "https://ezak.as.cz/contract_index.html\n"
+          "# Vzdálenější (konec seznamu)\n"
+          "https://zakazky.cheb.cz/contract_index.html"
+)
 
-# Načtení všech zadavatelů z 5 stránek
-@st.cache_data(ttl=3600)
-def load_all_profiles():
-    all_profiles = []
-    for page in range(1, 6):
-        url = f"{base_index}?page={page}"
-        try:
-            response = requests.get(url, timeout=15)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.text, "lxml")
-            
-            for a in soup.find_all("a", href=re.compile(r"profile_display_\d+")):
-                name = a.text.strip()
-                if name and len(name) > 3:
-                    profile_url = urljoin(base_index, a["href"])
-                    all_profiles.append({"Název zadavatele": name, "URL": profile_url})
-        except:
-            continue
-    return pd.DataFrame(all_profiles)
+if st.button("Načíst čerstvá data"):
+    urls = [u.strip() for u in urls_text.split("\n") if u.strip() and not u.strip().startswith("#")]
+    if not urls:
+        st.error("Zadej alespoň jednu URL!")
+        st.stop()
 
-# Zobrazení tabulky
-st.subheader("📋 Seznam všech zadavatelů v Karlovarském kraji")
-df_profiles = load_all_profiles()
-st.dataframe(df_profiles, use_container_width=True, hide_index=True)
-
-st.caption(f"Celkem nalezeno {len(df_profiles)} zadavatelů")
-
-if st.button("🔄 Načíst aktivní zakázky ze všech zadavatelů", type="primary"):
     now = datetime.now()
-    total_active = 0
 
-    with st.spinner("Prohledávám všechny zadavatele v kraji..."):
-        progress_bar = st.progress(0)
+    with st.spinner("Načítám data (včetně paginace)..."):
+        for base_url in urls:
+            pages_to_scrape = [base_url]
 
-        for idx, row in df_profiles.iterrows():
-            profile_name = row["Název zadavatele"]
-            profile_url = row["URL"]
-            
-            progress_bar.progress((idx + 1) / len(df_profiles))
+            if "contract_index.html" in base_url:
+                try:
+                    response = requests.get(base_url, timeout=15)
+                    soup = BeautifulSoup(response.text, "lxml")
+                    pagination = soup.find("div", class_=re.compile(r"pagination", re.I))
+                    if pagination:
+                        links = pagination.find_all("a", href=True)
+                        max_page = 1
+                        for link in links:
+                            href = link["href"]
+                            if "page=" in href:
+                                try:
+                                    page_num = int(parse_qs(urlparse(href).query)["page"][0])
+                                    max_page = max(max_page, page_num)
+                                except:
+                                    pass
+                        if max_page > 1:
+                            for p in range(2, max_page + 1):
+                                page_url = re.sub(r"page=\d+", f"page={p}", base_url)
+                                if "page=" not in page_url:
+                                    page_url = base_url + ("&" if "?" in base_url else "?") + f"page={p}"
+                                pages_to_scrape.append(page_url)
+                except:
+                    pass
 
+            # Název zadavatele
             try:
-                # Filtr na aktivní zakázky
-                url = profile_url
-                if "?" not in url:
-                    url += "?state=active&archive=ACTUAL"
-                else:
-                    url += "&state=active&archive=ACTUAL"
-
-                response = requests.get(url, timeout=12)
-                response.raise_for_status()
-                soup = BeautifulSoup(response.text, "lxml")
-
-                contract_links = soup.find_all("a", href=re.compile(r"contract_display_"))
-
-                active = []
-                for a in contract_links:
-                    name = a.text.strip()
-                    if not name or len(name) < 8: 
-                        continue
-                    link = urljoin(url, a["href"])
-
-                    tr = a.find_parent("tr")
-                    if not tr: 
-                        continue
-                    tds = tr.find_all("td")
-                    if len(tds) < 5: 
-                        continue
-
-                    deadline_str = tds[-1].text.strip().replace("\xa0", " ")
-
-                    if not deadline_str or deadline_str in ["-", ""]:
-                        continue
-
-                    try:
-                        if ":" in deadline_str:
-                            dl = datetime.strptime(deadline_str, "%d.%m.%Y %H:%M")
-                        else:
-                            dl = datetime.strptime(deadline_str, "%d.%m.%Y")
-                        if dl > now:
-                            active.append(f"[{name}]({link}) — lhůta {deadline_str}")
-                    except:
-                        continue
-
-                if active:
-                    st.markdown(f"### {profile_name}")
-                    for item in active:
-                        st.markdown(f"- {item}", unsafe_allow_html=True)
-                    total_active += len(active)
-
+                base_response = requests.get(base_url, timeout=15)
+                base_soup = BeautifulSoup(base_response.text, "lxml")
+                page_title = base_soup.title.text.strip() if base_soup.title else ""
+                instance_name = page_title.split("-")[-1].strip() if "-" in page_title else base_url.split("//")[1].split("/")[0]
             except:
-                continue
+                instance_name = base_url.split("//")[1].split("/")[0]
 
-        progress_bar.progress(1.0)
+            active_links = []
 
-    if total_active == 0:
-        st.info("Momentálně nejsou žádné aktivní zakázky v Karlovarském kraji.")
-    else:
-        st.success(f"Celkem nalezeno {total_active} aktivních zakázek")
+            for page_url in pages_to_scrape:
+                try:
+                    response = requests.get(page_url, timeout=15)
+                    response.raise_for_status()
+                    soup = BeautifulSoup(response.text, "lxml")
 
-st.caption("E-ZAK Karlovarský kraj • Prohledává všech 5 stránek zadavatelů")
+                    contract_links = soup.find_all("a", href=re.compile(r"contract_display_"))
+
+                    for a in contract_links:
+                        name = a.text.strip()
+                        if not name:
+                            continue
+                        link = urljoin(page_url, a["href"])
+
+                        current_tr = a.find_parent("tr")
+                        if not current_tr:
+                            continue
+
+                        next_trs = current_tr.find_next_siblings("tr", limit=2)
+                        if len(next_trs) < 2:
+                            continue
+
+                        details_tr = next_trs[1]
+                        details_tds = details_tr.find_all("td")
+                        if len(details_tds) < 4:
+                            continue
+
+                        deadline_str = details_tds[-1].text.strip().replace("\xa0", " ")
+
+                        if not deadline_str or deadline_str in ["-", ""]:
+                            continue
+
+                        try:
+                            deadline_clean = re.sub(r"\s+", " ", deadline_str).strip()
+                            if ":" in deadline_clean:
+                                deadline = datetime.strptime(deadline_clean, "%d.%m.%Y %H:%M")
+                            else:
+                                deadline = datetime.strptime(deadline_clean, "%d.%m.%Y")
+                            if deadline > now:
+                                active_links.append(f"[{name}]({link}) — lhůta {deadline_str}")
+                        except ValueError:
+                            continue
+
+                except:
+                    pass
+
+            st.markdown(f"### {instance_name}")
+
+            if active_links:
+                for link in active_links:
+                    st.markdown(f"- {link}", unsafe_allow_html=True)
+            else:
+                st.markdown("Nic nenalezeno")
